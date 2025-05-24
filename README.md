@@ -19,6 +19,7 @@
 - ✅ Supports real-time interaction with `Unreal Engine` through `LiveLink`
 - ✅ Modular design, easy to expand custom networks and motion libraries
 <img src="Media/arch-1.jpeg" alt="TRiMM Architecture" width="50%">
+
 ## Project Structure
 ```bash
 TRiMM/
