@@ -3,11 +3,10 @@
 **TRiMM** is a multi-modal real-time digital human motion generation system based on the Transformer architecture. It supports voice and text input, and combines BERT, Wav2Vec, and motion matching networks to achieve natural motion expression of digital humans in virtual environments.
 
 ## Demo
-
 <div align="center">
   <h2>🎥 Video demonstration</h2>
   <a href="https://www.youtube.com/watch?v=iXg1NN_boe8">
-    <img src="Media/arch-1.jpeg" alt="TRiMM 演示视频" width="800">
+    <img src="Media/TrimmDemo.jpg" alt="TRiMM Demonstration" width="800">
   </a>
   <p>Click the picture to see video demonstration</p>
 </div>
@@ -19,7 +18,7 @@
 - ✅ Supports standard `BVH` motion file input and output
 - ✅ Supports real-time interaction with `Unreal Engine` through `LiveLink`
 - ✅ Modular design, easy to expand custom networks and motion libraries
-
+<img src="Media/arch-1.jpeg" alt="TRiMM Architecture" width="50%">
 ## Project Structure
 ```bash
 TRiMM/
