@@ -3,9 +3,15 @@
 **TRiMM** is a multi-modal real-time digital human motion generation system based on the Transformer architecture. It supports voice and text input, and combines BERT, Wav2Vec, and motion matching networks to achieve natural motion expression of digital humans in virtual environments.
 
 ## Demo
+
 <div align="center">
-  [![精彩内容](https://github-readme-youtube-cards.vercel.app/api?videoId=iXg1NN_boe8&width=800&height=450)](https://www.youtube.com/watch?v=iXg1NN_boe8)
+  <h2>🎥 Video demonstration</h2>
+  <a href="https://www.youtube.com/watch?v=iXg1NN_boe8">
+    <img src="Media/arch-1.jpeg" alt="TRiMM 演示视频" width="800">
+  </a>
+  <p>Click the picture to see video demonstration</p>
 </div>
+
 ## Features
 - ✅ Supports multi-modal input of "voice + text"
 - ✅ Supports real-time motion generation for virtual digital humans with a delay of less than 150ms
@@ -27,11 +33,14 @@ TRiMM/
 │   ├── RealTimeIndex.txt
 │   ├── RotationAalysis.py
 │   └── SkeletonMapping.txt
+│   └── bvh/                  # Directory for motion files
 ├── Data/                      # Directory for model and data files
 │   ├── bert-base-chinese/
+│   ├── wav2vec2-base-960h/
 │   ├── bert-base-uncased/
-│   ├── chinese-wav2vec-base/
-│   └── bvh/
+│   ├── knn_graph.pkl
+│   ├── motiongrapg.kpl
+│   └── transformer_weight.pth              # Directory for motion files
 ├── examples/                   
 ├── inference.py              # Main inference script
 ├── MergeNp.py
@@ -73,17 +82,15 @@ pip install torch==2.4.0+cu117 torchvision==0.15.1+cu117 torchaudio==2.4.0+cu117
 
 ## Usage
 ### Preparation
-#### bert-base-chinese
-Place all the model files in the directory ".\TRiMM\Data\bert-base-chinese". The download address of the model is: https://huggingface.co/bert-base-chinese
 
 #### bert-base-uncased
 Place all the model files in the directory ".\TRiMM\Data\bert-base-uncased". The download address of the model is: https://huggingface.co/bert-base-uncased
 
-#### chinese-wav2vec-base
-Place all the model files in the directory ".\TRiMM\Data\chinese-wav2vec-base". The download address of the model is: https://huggingface.co/tencent/chinese-wav2vec-base
+#### wav2vec2-base-960h
+Place all the model files in the directory ".\TRiMM\Data\wav2vec2-base-960h". The download address of the model is: https://huggingface.co/facebook/wav2vec2-base-960h
 
 #### All BVH files of the motions
-Place all the BVH files in the directory ".\TRiMM\Data\bvh"
+Place all the BVH files in the directory ".\TRiMM\BvhLiveLink\bvh"
 
 ### Training
 
