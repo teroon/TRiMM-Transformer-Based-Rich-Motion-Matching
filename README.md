@@ -3,7 +3,9 @@
 **TRiMM** is a multi-modal real-time digital human motion generation system based on the Transformer architecture. It supports voice and text input, and combines BERT, Wav2Vec, and motion matching networks to achieve natural motion expression of digital humans in virtual environments.
 
 ## Demo
-[![Demostration video](https://github-readme-youtube-cards.vercel.app/api?videoId=iXg1NN_boe8&width=800&height=450)](https://www.youtube.com/watch?v=iXg1NN_boe8)
+<div align="center">
+  [![精彩内容](https://github-readme-youtube-cards.vercel.app/api?videoId=iXg1NN_boe8&width=800&height=450)](https://www.youtube.com/watch?v=iXg1NN_boe8)
+</div>
 ## Features
 - ✅ Supports multi-modal input of "voice + text"
 - ✅ Supports real-time motion generation for virtual digital humans with a delay of less than 150ms
