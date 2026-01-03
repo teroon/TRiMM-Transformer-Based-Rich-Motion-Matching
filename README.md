@@ -1,5 +1,7 @@
 # Transformer Based Rich Motion Matching: Multi-modal Real-Time Motion Generation for Digital Humans
 
+# Current under revising, may not run properly. we don't reconmend to download.
+
 **TRiMM** is a multi-modal real-time digital human motion generation system based on the Transformer architecture. It supports voice and text input, and combines BERT, Wav2Vec, and motion matching networks to achieve natural motion expression of digital humans in virtual environments.
 
 ## Demo
