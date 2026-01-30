@@ -5,18 +5,21 @@
 ## Demo
 
 <div align="center">
-  <h2>🎬 Additional Demo Videos</h2>
-  <video width="800" controls>
-    <source src="Media/nerag_demo_lite.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
+  <h2>🎬 Demo Video Available for Download</h2>
+  <p>The demo video is available as a downloadable file:</p>
+  <a href="Media/nerag_demo_lite.mp4" download>
+    <img src="Media/TrimmDemo.jpg" alt="Download Demo Video" width="800">
+  </a>
+  <p>Click the image to download the demo video</p>
 </div>
 
 <div align="center">
-  <h2>🖼️ Sample Images</h2>
+  <h2>Sample Images</h2>
+  <img src="Media/overview.png" alt="System Overview" width="600">
+  <p><em>System Overview Diagram</em></p>
   <table>
     <tr>
-      <td><img src="Media/RSMF.jpg" alt="RSMF" width="300"></td>
+      <td><img src="Media/RSMF.jpg" alt="RMSF" width="300"></td>
       <td><img src="Media/multimodal.jpg" alt="Multimodal" width="300"></td>
     </tr>
     <tr>
@@ -25,8 +28,7 @@
     </tr>
   </table>
   <br>
-  <img src="Media/overview.png" alt="System Overview" width="600">
-  <p><em>System Overview Diagram</em></p>
+
 </div>
 
 ## Features
@@ -36,7 +38,7 @@
 - ✅ Supports standard `BVH` motion file input and output
 - ✅ Supports real-time interaction with `Unreal Engine` through `LiveLink`
 - ✅ Modular design, easy to expand custom networks and motion libraries
-<img src="Media/arch-1.jpeg" alt="TRiMM Architecture" width="50%">
+
 
 
 
