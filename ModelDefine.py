@@ -34,7 +34,57 @@ class DiviedSpaceTimeAttention(nn.Module):
         else:
             x = x
         return self.norm(x)
-    
+
+
+class CrossAttention(nn.Module):
+    """Cross Attention Module for multi-modal processing"""
+    def __init__(self, embed_dim, num_heads):
+        super().__init__()
+        self.multihead_attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+        self.norm = nn.LayerNorm(embed_dim)
+        self.dropout = nn.Dropout(0.1)
+
+    def forward(self, query, key_value):
+        """
+        Args:
+            query: [B, S, D] - Query sequence (e.g., text)
+            key_value: [B, S, D] - Key/Value sequence (e.g., audio)
+        Returns:
+            Output of cross attention [B, S, D]
+        """
+        # Cross attention: query attends to key_value
+        attn_output, _ = self.multihead_attn(query, key_value, key_value)
+        output = query + self.dropout(attn_output)  # Residual connection
+        return self.norm(output)
+
+
+class StateEncoder(nn.Module):
+    """State Encoder for extracting kinematic features from previous action"""
+    def __init__(self, action_dim, state_dim=256, embed_dim=1024):
+        super().__init__()
+        self.state_dim = state_dim
+        self.embed_dim = embed_dim
+        # Linear projection from action dimension to state dimension
+        self.state_proj = nn.Linear(action_dim, state_dim)
+        # Further project state to embed_dim
+        self.embed_proj = nn.Linear(state_dim, embed_dim)
+        self.norm = nn.LayerNorm(embed_dim)
+        self.dropout = nn.Dropout(0.1)
+
+    def forward(self, prev_action):
+        """
+        Args:
+            prev_action: [B, action_dim] - Previous action primitive
+        Returns:
+            Embedded state representation [B, embed_dim]
+        """
+        # Project action to state space
+        state_features = F.relu(self.state_proj(prev_action))
+        # Project to embedding dimension
+        embedded_state = self.embed_proj(state_features)
+        return self.norm(self.dropout(embedded_state))
+
+
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000, device='cuda'):
         super(PositionalEncoding, self).__init__()
@@ -66,8 +116,14 @@ class MultiModalGPT(nn.Module):
         self.text_embedding = nn.Linear(text_dim, embed_dim)
         self.audio_embedding = nn.Linear(audio_dim, embed_dim)
         
-        # 融合门控
-        self.fusion_gate = nn.Linear(embed_dim*2, 2)  # 输入是concat后的维度
+        # Cross attention module for multimodal fusion
+        self.cross_attention = CrossAttention(embed_dim, num_heads)
+        
+        # State encoder for previous action feedback
+        self.state_encoder = StateEncoder(action_dim, state_dim=256, embed_dim=embed_dim)
+        
+        # Projection layer to generate latent motion query
+        self.query_projection = nn.Linear(embed_dim, embed_dim)
         
         # 位置编码
         self.pos_encoder = PositionalEncoding(embed_dim)
@@ -82,32 +138,61 @@ class MultiModalGPT(nn.Module):
         self.fc_out = nn.Linear(embed_dim, action_dim)
         self.use_multimodal = use_multimodal
 
-    def forward(self, text, audio):
-        # 模态融合
+    def forward(self, text, audio, prev_action=None):
+        """
+        Forward pass with recurrent motion state feedback (RMSF)
+        Args:
+            text: [B, S, text_dim] - Text features
+            audio: [B, S, audio_dim] - Audio features  
+            prev_action: [B, action_dim] - Previous action primitive (optional)
+        Returns:
+            action_prediction: [B, action_dim] - Predicted action
+            latent_query: [B, embed_dim] - Latent motion query for executor
+        """
+        # Embed text and audio
+        text_proj = self.text_embedding(text)  # [B, S, D]
+        audio_proj = self.audio_embedding(audio)  # [B, S, D]
+        
+        # Multi-modal fusion using cross attention
         if self.use_multimodal:
-            text_proj = self.text_embedding(text)  # [B, S, D]
-            audio_proj = self.audio_embedding(audio)
-            
-            # 门控融合
-            combined = torch.cat([text_proj, audio_proj], dim=-1)
-            gate = torch.softmax(self.fusion_gate(combined), dim=-1)  # [B, S, 2]
-            x = gate[..., 0:1] * text_proj + gate[..., 1:2] * audio_proj
+            # Text attends to audio (or vice versa)
+            fused_features = self.cross_attention(text_proj, audio_proj)
         else:
-            x = self.text_embedding(text)
+            fused_features = text_proj
         
-        # 添加位置编码
-        x = self.pos_encoder(x)
+        # Add positional encoding
+        x = self.pos_encoder(fused_features)
         
-        # 生成自回归掩码
+        # Inject previous action state if provided (RMSF mechanism)
+        if prev_action is not None:
+            # Encode the previous action state
+            prev_state_embed = self.state_encoder(prev_action)  # [B, embed_dim]
+            # Expand to match sequence length
+            prev_state_seq = prev_state_embed.unsqueeze(1).expand(-1, x.size(1), -1)  # [B, S, embed_dim]
+            # Concatenate with input features
+            x = torch.cat([x, prev_state_seq], dim=-1)  # [B, S, 2*embed_dim]
+            # Project back to original dimension
+            x = nn.Linear(x.size(-1), self.text_embedding.out_features).to(x.device)(x)
+        
+        # Generate auto-regressive mask
         seq_len = x.size(1)
-        #mask = torch.triu(torch.ones(seq_len, seq_len) * float('-inf'), diagonal=1).to(x.device)
+        # mask = torch.triu(torch.ones(seq_len, seq_len) * float('-inf'), diagonal=1).to(x.device)
         
-        # 通过所有Transformer层
+        # Pass through all transformer layers
         for layer in self.layers:
             x = layer(x, mask=None)
         
-        # 预测动作
-        return self.fc_out(x[:, -1, :])  # 取最后一个时间步
+        # Get final hidden state (take last time step)
+        final_hidden = x[:, -1, :]  # [B, embed_dim]
+        
+        # Generate latent motion query
+        latent_query = self.query_projection(final_hidden)  # [B, embed_dim]
+        
+        # Predict action
+        action_prediction = self.fc_out(final_hidden)  # [B, action_dim]
+        
+        return action_prediction, latent_query
+
 
 class TransformerBlock(nn.Module):
     def __init__(self, embed_dim, num_heads, use_time_attention):
@@ -134,7 +219,7 @@ class TransformerBlock(nn.Module):
 
     
 class MultiModalDataset(Dataset):
-    def __init__(self, text_features, audio_features, action_features,window_size):
+    def __init__(self, text_features, audio_features, action_features, window_size):
         self.text_features = text_features.astype(np.float32)
         self.audio_features = audio_features.astype(np.float32)
         self.action_features = action_features.astype(np.float32)
@@ -144,12 +229,14 @@ class MultiModalDataset(Dataset):
         return len(self.text_features) - self.window_size
 
     def __getitem__(self, idx):
-        text_feature = self.text_features[idx:idx + self.window_size ]
+        text_feature = self.text_features[idx:idx + self.window_size]
         audio_feature = self.audio_features[idx:idx + self.window_size]
-        action_feature = self.action_features[idx + self.window_size-1 ]
+        action_feature = self.action_features[idx + self.window_size-1]
+        # Return previous action if available
+        prev_action = self.action_features[idx + self.window_size-2] if idx + self.window_size-2 >= 0 else np.zeros_like(action_feature)
         return {
             'text': text_feature,
             'audio': audio_feature,
             'action': action_feature,
+            'prev_action': prev_action
         }
-    

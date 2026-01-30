@@ -1,205 +1,114 @@
+# copy the ./emage_evaltools folder into your folder
+from emage_evaltools.mertic import FGD,L1div,BC
+import torch
 import numpy as np
-from scipy.linalg import sqrtm
-import bvh
+import glob
+from emage_utils.motion_io import beat_format_load
+from emage_utils import rotation_conversions as rc
 import os
-from sklearn.decomposition import PCA  # 用于降维以可视化
-from sklearn.manifold import TSNE  # 用于降维以可视化
-from scipy.interpolate import interp1d
-from concurrent.futures import ThreadPoolExecutor
 
-def get_filenames(directory):
-    """
-    获取指定目录下所有文件的文件名（不包括扩展名）。
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def evaluate_dataset(dataset_path, gt_path):
+    """Evaluate a single dataset against ground truth"""
+    # init evaluators for this dataset
+    fgd_evaluator = FGD(download_path="./emage_evaltools/")
+    l1div_evaluator = L1div()
     
-    :param directory: 要搜索的目录
-    :return: 文件名列表（不含扩展名）
-    """
-    filenames = []  # 用于存储文件名
-    for filename in os.listdir(directory):  # 遍历目录中的文件和子目录
-        full_path = os.path.join(directory, filename)  # 获取完整路径
-        if filename.endswith('.bvh'):  # 检查是否为文件
-            name = full_path # 去掉扩展名
-            filenames.append(name)
+    all_motion_pred = glob.glob(os.path.join(dataset_path, "*.npz"))
+    motion_gt_paths = glob.glob(os.path.join(gt_path, "*.npz"))
     
-    sorted_filenames = sorted(filenames)  # 使用 sorted() 函数按字典序排序[^20^][^27^]
+    if len(all_motion_pred) == 0:
+        print(f"No prediction files found in {dataset_path}")
+        return None
     
-    return sorted_filenames
-
-def load_bvh_features_raw(file_path, selected_joints=None):
-    """
-    Load feature vectors from a BVH file
-    :param file_path: Path to the BVH file
-    :param selected_joints: List of joint names to include in the feature vectors. If None, all joints are included.
-    :return: Array of feature vectors
-    """
-    with open(file_path, 'r') as f:
-        mocap = bvh.Bvh(f.read())
-    if selected_joints is None:
-        joints = mocap.get_joints_names()
-    else:
-        joints = selected_joints
-    # Get channel information for all joints in advance
-    joint_channels = {joint: mocap.joint_channels(joint) for joint in joints}
-
-    # Get raw data for all frames
-    all_frames = np.array(mocap.frames, dtype=np.float32)
-
-    # Manually calculate the starting index of each joint's channels
-    channel_indices = []
-    joint_order = mocap.get_joints_names()
-    index = 0
-    for joint in joint_order:
-        if joint in joints:
-            num_channels = 3
-            channel_indices.extend(range(index, index + num_channels))
-        index += len(mocap.joint_channels(joint))
-
-    # Extract the required channel data
-    features = all_frames[:, channel_indices]
-
-
-
-        # Perform interpolation
-
-    return np.nan_to_num(features)
-
-def load_bvh_features_2d(file_path, selected_joints=None):
-    """
-    Load feature vectors from a BVH file
-    :param file_path: Path to the BVH file
-    :param selected_joints: List of joint names to include in the feature vectors. If None, all joints are included.
-    :return: Array of feature vectors
-    """
-    with open(file_path, 'r') as f:
-        mocap = bvh.Bvh(f.read())
-    if selected_joints is None:
-        joints = mocap.get_joints_names()
-    else:
-        joints = selected_joints
-    # Get channel information for all joints in advance
-    joint_channels = {joint: mocap.joint_channels(joint) for joint in joints}
-
-    # Get raw data for all frames
-    all_frames = np.array(mocap.frames, dtype=np.float32)
-
-    # Manually calculate the starting index of each joint's channels
-    channel_indices = []
-    joint_order = mocap.get_joints_names()
-    index = 0
-    for joint in joint_order:
-        if joint in joints:
-            num_channels = 3
-            channel_indices.extend(range(index, index + num_channels))
-        index += len(mocap.joint_channels(joint))
-
-    # Extract the required channel data
-    features = all_frames[:, channel_indices]
-    # 使用 t-SNE 进行降维到二维
-    try:
-        tsne = TSNE(n_components=2, random_state=42)
-        features = tsne.fit_transform(np.nan_to_num(features))
-    except ValueError as e:
-        features.reshape(75, -1)
-
-    return np.nan_to_num(features)
-
-def calculate_fgd(generated_features, real_features):
-    """
-    Calculate the Frechet Gesture Distance (FGD)
-    :param generated_features: Feature vectors of the generated gestures
-    :param real_features: Feature vectors of the real gestures
-    :return: FGD value
-    """
-    # 直接计算均值
-    mu_g = np.mean(generated_features, axis=0)
-    mu_r = np.mean(real_features, axis=0)
-    # 计算协方差矩阵
-    sigma_g = np.cov(generated_features, rowvar=False)
-    sigma_r = np.cov(real_features, rowvar=False)
+    if len(motion_gt_paths) == 0:
+        print(f"No ground truth files found in {gt_path}")
+        return None
+        
+    # Create a mapping between prediction files and ground truth files
+    # Extract filenames without extensions for matching
+    pred_files_map = {os.path.splitext(os.path.basename(path))[0]: path for path in all_motion_pred}
+    gt_files_map = {os.path.splitext(os.path.basename(path))[0]: path for path in motion_gt_paths}
     
-    # 计算 L2 范数的平方
-    diff = mu_g - mu_r
-    l2_norm_squared = np.sum(diff ** 2)
+    # Find common files between predictions and ground truth
+    common_files = set(pred_files_map.keys()).intersection(set(gt_files_map.keys()))
     
-    # 计算协方差矩阵的乘积
-    cov_product = np.dot(sigma_g, sigma_r)
+    if len(common_files) == 0:
+        print(f"No matching prediction-groundtruth pairs found in {dataset_path}")
+        return None
     
-    # 计算矩阵的平方根
-    try:
-        sqrt_cov_product = sqrtm(cov_product)
-        if np.iscomplexobj(sqrt_cov_product):
-            sqrt_cov_product = sqrt_cov_product.real
-    except np.linalg.LinAlgError:
-        # 处理奇异矩阵的情况，增加正则化项
-        eps = 1e-4  # Increase the regularization term
-        eye = np.eye(sigma_g.shape[0]) * eps
+    print(f"Found {len(common_files)} matching files for evaluation in {os.path.basename(dataset_path)}")
+    
+    processed_count = 0
+    # Process matched files
+    for filename in sorted(common_files):
         try:
-            sqrt_cov_product = sqrtm((sigma_g + eye).dot(sigma_r + eye))
-            if np.iscomplexobj(sqrt_cov_product):
-                sqrt_cov_product = sqrt_cov_product.real
-        except np.linalg.LinAlgError:
-            # 若仍然失败，使用特征值分解计算矩阵平方根
-            eigenvalues, eigenvectors = np.linalg.eigh(cov_product)
-            # Check for numerical instability
-            if np.any(eigenvalues < -1e-8):
-                print("Matrix is numerically not positive semi-definite.")
-            # 将负特征值设为 0，确保矩阵半正定
-            eigenvalues = np.maximum(eigenvalues, 0)
-            sqrt_eigenvalues = np.sqrt(eigenvalues)
-            sqrt_cov_product = eigenvectors @ np.diag(sqrt_eigenvalues) @ eigenvectors.T
-
-
+            motion_pred_path = pred_files_map[filename]
+            motion_gt_path = gt_files_map[filename]
+            
+            motion_pred_data = beat_format_load(motion_pred_path)['poses']
+            motion_gt_data = beat_format_load(motion_gt_path)['poses']
+            
+            # Check sequence length to avoid convolution errors
+            if motion_pred_data.shape[0] < 10 or motion_gt_data.shape[0] < 10:
+                print(f"Skipping {filename}: sequence too short ({motion_pred_data.shape[0]} frames)")
+                continue
+                
+            # fgd requires rotation 6d representation
+            motion_gt_a = torch.from_numpy(motion_gt_data).to(device).unsqueeze(0)
+            motion_pred_a = torch.from_numpy(motion_pred_data).to(device).unsqueeze(0)
+            t = motion_gt_a.shape[1]
+            motion_gt = rc.axis_angle_to_rotation_6d(motion_gt_a.reshape(1, t, 55, 3)).reshape(1, t, 55*6)
+            t = motion_pred_a.shape[1]
+            motion_pred = rc.axis_angle_to_rotation_6d(motion_pred_a.reshape(1, t, 55, 3)).reshape(1, t, 55*6)
+            
+            # Additional check for minimum sequence length after reshaping
+            if motion_gt.shape[1] < 10 or motion_pred.shape[1] < 10:
+                print(f"Skipping {filename}: reshaped sequence too short")
+                continue
+            
+            fgd_evaluator.update(motion_pred.float(), motion_gt.float())
+            l1div_evaluator.compute(motion_pred_data)
+            processed_count += 1
+            
+        except Exception as e:
+            print(f"Error processing {filename}: {str(e)}")
+            continue
     
-    # 计算矩阵的迹
-    trace_term = np.trace(sigma_g + sigma_r - 2 * np.nan_to_num(sqrt_cov_product))
+    print(f"Successfully processed {processed_count}/{len(common_files)} files in {os.path.basename(dataset_path)}")
     
-    # 计算 FGD
-    fgd = abs(l2_norm_squared + trace_term)
-    return fgd
-
-
-def get_subfolders(directory):
-    """
-    获取指定目录下的所有次一级子文件夹路径。
+    if processed_count == 0:
+        print(f"No files could be processed in {dataset_path}")
+        return None
     
-    :param directory: 要搜索的目录
-    :return: 次一级子文件夹路径列表
-    """
-    subfolders = []
-    for entry in os.listdir(directory):
-        entry_path = os.path.join(directory, entry)
-        if os.path.isdir(entry_path):
-            subfolders.append(entry_path)
-    return subfolders
+    metrics = {}
+    metrics["fgd"] = fgd_evaluator.compute()
+    metrics["l1"] = l1div_evaluator.avg()
+    return metrics
 
+# Define the parent directory containing multiple dataset folders
+datasets_parent_dir = "examples/test"  # Parent directory containing dataset folders
+gt_dir = "examples/zeggsnpz"
 
-# 读取文件夹中的所有 BVH 文件
-generated_folders = get_subfolders("tested-beat")
-real_folder = "beat_data/Beat_1"
-columns_to_read =['Hips', 'Spine', 'Spine1', 'Spine2', 'Spine3', 'Neck', 'Neck1', 'Head', 'HeadEnd', 'RightShoulder', 'RightArm', 'RightForeArm', 'RightHand', 'LeftShoulder', 'LeftArm', 'LeftForeArm', 'LeftHand', 'RightUpLeg', 'RightLeg', 'RightFoot', 'RightToeBase', 'LeftUpLeg', 'LeftLeg', 'LeftFoot', 'LeftToeBase']
+# Find all subdirectories in the parent directory that contain .npz files (potential datasets)
+all_items = os.listdir(datasets_parent_dir)
+dataset_dirs = []
 
-for generated_folder in generated_folders:
-    generated_bvhs = get_filenames(generated_folder)
-    real_bvhs = get_filenames(real_folder)
+for item in all_items:
+    item_path = os.path.join(datasets_parent_dir, item)
+    if os.path.isdir(item_path):
+        # Check if this directory contains .npz files
+        npz_files = glob.glob(os.path.join(item_path, "*.npz"))
+        if len(npz_files) > 0:
+            dataset_dirs.append(item)
 
-    total_fgd = 0
-    total_fgd_raw=0
-
-    for i in range(len(real_bvhs)):
-        generated_bvh_file = generated_bvhs[i]
-        real_bvh_file = real_bvhs[i]
-        if  os.path.exists(generated_bvh_file):
-            fgd=0#calculate_fgd(load_bvh_features_2d(generated_bvh_file,columns_to_read),load_bvh_features_2d(real_bvh_file,columns_to_read))
-            fgd_raw=calculate_fgd(load_bvh_features_raw(generated_bvh_file,columns_to_read),load_bvh_features_raw(real_bvh_file,columns_to_read))
-            total_fgd+=fgd
-            total_fgd_raw+=fgd_raw
-            print(f"{generated_bvh_file}: {fgd}")
-            print(f"{generated_bvh_file}: {fgd_raw}")
-            with open("fgd_beat.txt", "a+", encoding="utf-8") as file:
-                file.write(f"{generated_bvh_file}: {fgd}"+'\n')
-                file.write(f"{generated_bvh_file}: {fgd_raw}"+'\n')
-    print(f"Total FGD value: {total_fgd}")
-    print(f"Total FGD raw value: {total_fgd_raw}")
-    with open("fgd_beat.txt", "a+", encoding="utf-8") as file:
-        file.write(f"Total FGD value: {total_fgd}"+'\n')
-        file.write(f"Total FGD raw value: {total_fgd_raw}"+'\n')
+# Evaluate each dataset
+for dataset_name in dataset_dirs:
+    dataset_path = os.path.join(datasets_parent_dir, dataset_name)
+    print(f"\nEvaluating dataset: {dataset_name}")
+    metrics = evaluate_dataset(dataset_path, gt_dir)
+    if metrics:
+        print(f"{dataset_name} - FGD: {metrics['fgd']:.4f}, L1: {metrics['l1']:.4f}")
+    else:
+        print(f"Failed to evaluate dataset: {dataset_name}")

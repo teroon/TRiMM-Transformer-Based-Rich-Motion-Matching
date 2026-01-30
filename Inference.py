@@ -34,7 +34,7 @@ class Inference:
 
         # 假设你的模型类名为MultimodalModel
         self.model = ModelDefine.MultiModalGPT()
-        self.model.load_state_dict(torch.load('Data/transformer-5-8-4.pth', map_location="cuda", weights_only=True))
+        self.model.load_state_dict(torch.load('Data/transformer-5-8-4.pth', map_location="cuda"))
 
         self.wav2vec_model.model.to("cuda")
         self.bert_model.to("cuda")
@@ -85,7 +85,7 @@ class Inference:
         self.audio_sequence.append(data_reduced)
 
     def inference_action_feature(
-            self,wav_length
+            self, wav_length, prev_action_feature=None
     ):
         audio_array = np.expand_dims(np.asarray(self.audio_sequence), axis=0)
         text_array = np.expand_dims(np.asarray(self.text_sequence), axis=0)
@@ -94,43 +94,37 @@ class Inference:
             audio_tensor = torch.from_numpy(audio_array).float().to("cuda").permute(0, 1, 2)
             text_tensor = torch.from_numpy(text_array).float().to("cuda").permute(0, 1, 2)
 
-        # 加载保存的权重
-
         self.model.eval()
 
-        # 现在你可以使用加载了权重的模型进行推理
-        # 例如，获取模型的输出
         with torch.no_grad():
-            action_features = self.model(text_tensor , audio_tensor).cpu().numpy() 
+            if prev_action_feature is not None:
+                # Convert prev_action_feature to tensor and move to GPU
+                prev_action_tensor = torch.from_numpy(prev_action_feature).float().to("cuda").unsqueeze(0)
+                action_features, latent_query = self.model(text_tensor, audio_tensor, prev_action_tensor)
+            else:
+                action_features, latent_query = self.model(text_tensor, audio_tensor)
+            action_features = action_features.cpu().numpy() 
             action_features = action_features.squeeze(0)
-            self.action_index, self.action_lengths = self.searcher.search_vector_index(action_features,wav_length)
+            self.action_index, self.action_lengths = self.searcher.search_vector_index(action_features, wav_length)
 
     async def inference_by_file(
             self,
             audio_path,
-            text
+            text,
+            prev_action_bvh_path=None
     ):
         self.extract_text_audio_feature_by_file(
             audio_path,
             text
         )
         wav_length = get_wav_duration(audio_path)
-        self.inference_action_feature(wav_length)
-        # 初始化一个变量来存储找到的索引
-
-        return self.action_index, wav_length
-
-    async def inference_by_data(
-            self,
-            audio,
-            text
-    ):
-        self.extract_text_audio_feature_by_data(
-            audio,
-            text
-        )
-        wav_length = 3
-        self.inference_action_feature(wav_length)
+        
+        # Load previous action feature from BVH file if provided
+        prev_action_feature = None
+        if prev_action_bvh_path is not None:
+            prev_action_feature, _ = load_bvh_features(prev_action_bvh_path, None)
+        
+        self.inference_action_feature(wav_length, prev_action_feature)
         # 初始化一个变量来存储找到的索引
 
         return self.action_index, wav_length
@@ -189,6 +183,16 @@ def find_files_with_string(directory, target_string):
 
 
 async def main():
+    # 获取Bvh2LiveLink\recorded_frames目录中最新的BVH文件，即上一个输出的动作，作为下一个动作的反馈输入。
+    bvh_dir = "Bvh2LiveLink/recorded_frames"
+    bvh_files = glob.glob(os.path.join(bvh_dir, "*.bvh"))
+    prev_action_bvh_path = None
+    if bvh_files:
+        # 按修改时间排序，获取最新的文件
+        prev_action_bvh_path = max(bvh_files, key=os.path.getmtime)
+    else:
+        print(f"Warning: No BVH files found in {bvh_dir}")
+
     inference_instance = Inference()
 
     async with websockets.connect(
@@ -211,10 +215,10 @@ async def main():
             print(f"收到回复: {response}")
             for i in range (len(txt_files)):
                 audio_path = wav_files[i]
-                text = txt_files[i]
+                text = read_txt_file(txt_files[i])
                 filename_send= filename
 
-                action_index, wav_length = await inference_instance.inference_by_file(audio_path, text)
+                action_index, wav_length = await inference_instance.inference_by_file(audio_path, text, prev_action_bvh_path)
                 result = {"filename" : filename_send ,"action_index": int(action_index), "wav_length": wav_length}
                 await websocket.send(json.dumps(result))
                 response = await websocket.recv()
@@ -228,159 +232,24 @@ async def main():
             print(f"收到回复: {response}")
             time.sleep(3)
 
-        dataset="zeggs"
-        txt_files = glob.glob(os.path.join("Data/"+dataset, '*.txt'))
-        wav_files = glob.glob(os.path.join("Data/"+dataset, '*.wav'))
-        txt_set = set()
-        for i in range (len(txt_files)):
-            txt_set.add(os.path.basename(txt_files[i]).rsplit('_', 1)[0])
-        filenames = list(txt_set)
-        filenames.sort()
-        for filename in filenames:
-            txt_files, wav_files = find_files_with_string('Data/'+dataset, filename)
-            await websocket.send(json.dumps({"recording": True}))
-            response = await websocket.recv()
-            print(f"收到回复: {response}")
-            for i in range (len(txt_files)):
-                audio_path = wav_files[i]
-                text = txt_files[i]
-                filename_send= filename
-
-                action_index, wav_length = await inference_instance.inference_by_file(audio_path, text)
-                result = {"filename" : filename_send ,"action_index": int(action_index), "wav_length": wav_length}
-                await websocket.send(json.dumps(result))
-                response = await websocket.recv()
-                print(f"收到回复: {response}")
-                if wav_length>1:
-                    time.sleep(wav_length)
-                else :
-                    time.sleep(1)
-            await websocket.send(json.dumps({"recording": False, "save_recording": True}))
-            response = await websocket.recv()
-            print(f"收到回复: {response}")
-            time.sleep(3)
-
-
-
-    
-def load_bvh_features_raw(file_path, selected_joints=None):
-    """
-    Load feature vectors from a BVH file
-    :param file_path: Path to the BVH file
-    :param selected_joints: List of joint names to include in the feature vectors. If None, all joints are included.
-    :return: Array of feature vectors
-    """
-    with open(file_path, 'r') as f:
-        mocap = bvh.Bvh(f.read())
-    if selected_joints is None:
-        joints = mocap.get_joints_names()
-    else:
-        joints = selected_joints
-    # Get channel information for all joints in advance
-    joint_channels = {joint: mocap.joint_channels(joint) for joint in joints}
-
-    # Get raw data for all frames
-    all_frames = np.array(mocap.frames, dtype=np.float32)
-
-    # Manually calculate the starting index of each joint's channels
-    channel_indices = []
-    joint_order = mocap.get_joints_names()
-    index = 0
-    for joint in joint_order:
-        if joint in joints:
-            num_channels = 3
-            channel_indices.extend(range(index, index + num_channels))
-        index += len(mocap.joint_channels(joint))
-
-    # Extract the required channel data
-    features = all_frames[:, channel_indices]
-
-    num_channels = features.shape[1]
-
-    # Calculate the minimum and maximum values
-    min_val = np.min(features)
-    max_val = np.max(features)
-
-    # Normalize the array
-    features = (features - min_val) / (max_val - min_val)
-
-    # Initialize the output feature array
-    output_features = np.zeros((num_channels, 1000))
-
-    # Define the x-axis range of the original data
-    x = np.linspace(0, 1, len(features))
-
-    # Define the x-axis range after interpolation
-    x_new = np.linspace(0, 1, 1000)
-
-    # Interpolate each channel
-    for i in range(num_channels):
-        # Check if the current channel contains invalid data
-        if np.any(np.isnan(features[:, i])) or np.any(np.isinf(features[:, i])):
-            #raise ValueError(f"Invalid data in channel {i}: contains NaN or Inf")
-            features=np.nan_to_num(features)
-
-        # Create an interpolation function, allowing extrapolation to avoid boundary issues
-        f = interp1d(x, features[:, i], kind='linear', bounds_error=False, fill_value="extrapolate")
-
-        # Perform interpolation
-        output_features[i] = f(x_new)
-
-    return np.nan_to_num(output_features)
-
-def load_bvh_features_2d(file_path, selected_joints=None):
-    """
-    Load feature vectors from a BVH file
-    :param file_path: Path to the BVH file
-    :param selected_joints: List of joint names to include in the feature vectors. If None, all joints are included.
-    :return: Array of feature vectors
-    """
-    with open(file_path, 'r') as f:
-        mocap = bvh.Bvh(f.read())
-    if selected_joints is None:
-        joints = mocap.get_joints_names()
-    else:
-        joints = selected_joints
-    # Get channel information for all joints in advance
-    joint_channels = {joint: mocap.joint_channels(joint) for joint in joints}
-
-    # Get raw data for all frames
-    all_frames = np.array(mocap.frames, dtype=np.float32)
-
-    # Manually calculate the starting index of each joint's channels
-    channel_indices = []
-    joint_order = mocap.get_joints_names()
-    index = 0
-    for joint in joint_order:
-        if joint in joints:
-            num_channels = 3
-            channel_indices.extend(range(index, index + num_channels))
-        index += len(mocap.joint_channels(joint))
-
-    # Extract the required channel data
-    features = all_frames[:, channel_indices].T
-    features[np.isnan(features)] = 0
-    features[np.isinf(features)] = 1
-    pca = PCA(n_components=10)
-    
-    # 使用PCA对象对数据进行拟合和转换，得到降维后的数据
-    X_reduced = pca.fit_transform(features)
-
-    return np.nan_to_num(X_reduced)
 
 def load_bvh_features(file_path, selected_joints):
     """
     Load feature vectors from a BVH file
+    We extract its terminal kinematic features (root velocity, joint rotations, foot contacts) to form the state vector $\mathbf{s}_{t-1}$
+    
     :param file_path: Path to the BVH file
     :param selected_joints: List of joint names to include in the feature vectors. If None, all joints are included.
-    :return: Array of feature vectors
+    :return: Array of feature vectors and frame count normalized by 120
     """
     with open(file_path, 'r') as f:
         mocap = bvh.Bvh(f.read())
+    
     if selected_joints is None:
         joints = mocap.get_joints_names()
     else:
         joints = selected_joints
+    
     # Get channel information for all joints in advance
     joint_channels = {joint: mocap.joint_channels(joint) for joint in joints}
 
@@ -393,7 +262,7 @@ def load_bvh_features(file_path, selected_joints):
     index = 0
     for joint in joint_order:
         if joint in joints:
-            num_channels = 3
+            num_channels = 3  # Assuming 3 channels per joint (rotation/position)
             channel_indices.extend(range(index, index + num_channels))
         index += len(mocap.joint_channels(joint))
 
@@ -401,52 +270,15 @@ def load_bvh_features(file_path, selected_joints):
     features = all_frames[:, channel_indices].T
     features[np.isnan(features)] = 0
     features[np.isinf(features)] = 1
+    
+    # Apply PCA for dimensionality reduction to form the state vector s_{t-1}
     pca = PCA(n_components=10)
-    df_length_div_120 = features.shape[1] / 120
-    # 使用PCA对象对数据进行拟合和转换，得到降维后的数据
+    # Use PCA to fit and transform the data to get reduced dimensional representation
     X_reduced = pca.fit_transform(features)
     features = X_reduced.flatten()
-    return np.nan_to_num(features),df_length_div_120
+    
+    return np.nan_to_num(features)
 
-def calculate_fgd(generated_features, real_features):
-    """
-    Calculate the Frechet Gesture Distance (FGD)
-    :param generated_features: Feature vectors of the generated gestures
-    :param real_features: Feature vectors of the real gestures
-    :return: FGD value
-    """
-    # 直接计算均值
-    mu_g = np.mean(generated_features, axis=0)
-    mu_r = np.mean(real_features, axis=0)
-    # 计算协方差矩阵
-    sigma_g = np.cov(generated_features, rowvar=False)
-    sigma_r = np.cov(real_features, rowvar=False)
-    
-    # 计算 L2 范数的平方
-    diff = mu_g - mu_r
-    l2_norm_squared = np.sum(diff ** 2)
-    
-    # 计算协方差矩阵的乘积
-    cov_product = np.dot(sigma_g, sigma_r)
-    
-    # 计算矩阵的平方根
-    try:
-        sqrt_cov_product = sqrtm(cov_product)
-        if np.iscomplexobj(sqrt_cov_product):
-            sqrt_cov_product = sqrt_cov_product.real
-    except np.linalg.LinAlgError:
-        # 处理奇异矩阵的情况
-        eye = np.eye(sigma_g.shape[0]) * 1e-6
-        sqrt_cov_product = sqrtm((sigma_g + eye).dot(sigma_r + eye))
-        if np.iscomplexobj(sqrt_cov_product):
-            sqrt_cov_product = sqrt_cov_product.real
-    
-    # 计算矩阵的迹
-    trace_term = np.trace(sigma_g + sigma_r - 2 * sqrt_cov_product)
-    
-    # 计算 FGD
-    fgd = abs(l2_norm_squared + trace_term)
-    return fgd
 
 if __name__ == "__main__":
     asyncio.run(main())
