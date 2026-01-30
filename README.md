@@ -17,17 +17,11 @@
   <h2>Sample Images</h2>
   <img src="Media/overview.png" alt="System Overview" width="600">
   <p><em>System Overview Diagram</em></p>
-  <table>
-    <tr>
-      <td><img src="Media/RSMF.jpg" alt="RMSF" width="300"></td>
-      <td><img src="Media/multimodal.jpg" alt="Multimodal" width="300"></td>
-    </tr>
-    <tr>
-      <td align="center"><em>RSMF Example</em></td>
-      <td align="center"><em>Multimodal Input</em></td>
-    </tr>
-  </table>
   <br>
+  <img src="Media/RMSF.jpg" alt="System Overview" width="600">
+  <p><em>RSMF Example</em></p>
+  <img src="Media/multimodal.jpg" alt="System Overview" width="600">
+  <p><em>Multimodal Input</em></p>
 
 </div>
 
