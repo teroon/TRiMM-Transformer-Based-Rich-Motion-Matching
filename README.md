@@ -18,9 +18,9 @@
   <img src="Media/overview.png" alt="System Overview" width="600">
   <p><em>System Overview Diagram</em></p>
   <br>
-  <img src="Media/RMSF.jpg" alt="System Overview" width="600">
+  <img src="Media/RMSF.jpg" alt="RSMF" width="600">
   <p><em>RSMF Example</em></p>
-  <img src="Media/multimodal.jpg" alt="System Overview" width="600">
+  <img src="Media/multimodal.jpg" alt="multimodal" width="600">
   <p><em>Multimodal Input</em></p>
 
 </div>
@@ -33,6 +33,12 @@
 - ✅ Supports real-time interaction with `Unreal Engine` through `LiveLink`
 - ✅ Modular design, easy to expand custom networks and motion libraries
 
+## Supplementary Evaluation Results
+<div align="center">
+  <img src="Media/zeggs_evaluation.jpg" alt="zeggs" width="600">
+  <p><em>:Evaluation Results for ZEGGS dataset</em></p>
+  <img src="Media/KGS2.jpg" alt="KS2" width="600">
+  <p><em>Pairwise significance heatmaps for ZEGGS dataset</em></p>
 
-
+</div>
 
