@@ -35,9 +35,9 @@
 
 ## Supplementary Evaluation Results
 <div align="center">
-  <img src="Media/zeggs_evaluation.jpg" alt="zeggs" width="600">
+  <img src="Media/zeggs_evaluation.jpg" alt="zeggs" width="800">
   <p><em>:Evaluation Results for ZEGGS dataset</em></p>
-  <img src="Media/KGS2.jpg" alt="KS2" width="600">
+  <img src="Media/KS2.jpg" alt="KS2" width="600">
   <p><em>Pairwise significance heatmaps for ZEGGS dataset</em></p>
 
 </div>
